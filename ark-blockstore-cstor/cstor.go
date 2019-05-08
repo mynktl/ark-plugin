@@ -258,7 +258,7 @@ func (p *cstorSnapPlugin) CreateSnapshot(volumeID, volumeAZ string, tags map[str
 	var vol *Volume
 
 	p.cl.exitServer = false
-	bkpname, terr := tags["ark.heptio.com/backup"]
+	bkpname, terr := tags["velero.io/backup"]
 	if terr != true {
 		return "", errors.New("Failed to get backup name")
 	}

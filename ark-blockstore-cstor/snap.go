@@ -17,15 +17,15 @@ limitations under the License.
 package main
 
 import (
-	"github.com/heptio/ark/pkg/cloudprovider"
+	"github.com/heptio/velero/pkg/cloudprovider"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // BlockStore : Plugin for containing state for the blockstore plugin
 type BlockStore struct {
-	Log    logrus.FieldLogger
 	plugin cloudprovider.BlockStore
+	Log    logrus.FieldLogger
 }
 
 var _ cloudprovider.BlockStore = (*BlockStore)(nil)

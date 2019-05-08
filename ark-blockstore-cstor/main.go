@@ -1,12 +1,12 @@
 package main
 
 import (
-	arkplugin "github.com/heptio/ark/pkg/plugin"
+	veleroplugin "github.com/heptio/velero/pkg/plugin"
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	arkplugin.NewServer(arkplugin.NewLogger()).
+	veleroplugin.NewServer(veleroplugin.NewLogger()).
 		RegisterBlockStore("cstor-blockstore", openebsSnapPlugin).
 		Serve()
 }

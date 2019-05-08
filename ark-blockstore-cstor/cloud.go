@@ -65,7 +65,7 @@ func (c *cloudUtils) setupGCP(ctx context.Context, bucket string) (*blob.Bucket,
 	if err != nil {
 		return nil, err
 	}
-	return gcsblob.OpenBucket(ctx, bucket, d, nil)
+	return gcsblob.OpenBucket(ctx, d, bucket, nil)
 }
 
 func (c *cloudUtils) setupAWS(ctx context.Context, bucketName, region string) (*blob.Bucket, error) {
@@ -89,7 +89,7 @@ func (c *cloudUtils) setupAWS(ctx context.Context, bucketName, region string) (*
 	}
 
 	s := session.Must(session.NewSession(d))
-	return s3blob.OpenBucket(ctx, bucketName, s, nil)
+	return s3blob.OpenBucket(ctx, s, bucketName, nil)
 }
 
 func (c *cloudUtils) InitCloudConn(config map[string]string) error {
