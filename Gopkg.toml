@@ -25,40 +25,34 @@
 #   unused-packages = true
 
 [[constraint]]
-  name = "github.com/heptio/ark"
-  version = "0.10.0"
+  name = "github.com/heptio/velero"
+  branch = "master"
+
+[[constraint]]
+  name = "github.com/aws/aws-sdk-go"
+  version = "1.19.25"
 
 [[constraint]]
   name = "github.com/sirupsen/logrus"
-  version = "1.2.0"
+  version = "1.4.1"
+
+[[constraint]]
+  name = "gocloud.dev"
+  version = "0.13.0"
+
+[[constraint]]
+  name = "k8s.io/api"
+  version = "kubernetes-1.12.0"
 
 [[constraint]]
   name = "k8s.io/apimachinery"
-  version = "kubernetes-1.11.0"
+  version = "kubernetes-1.12.0"
+#  revision = "6dd46049f39503a1fc8d65de4bd566829e95faff"
 
 [[constraint]]
   name = "k8s.io/client-go"
-  version = "8.0.0"
+  version = "9.0.0"
 
 [prune]
   go-tests = true
   unused-packages = true
-
-# vendor/k8s.io/client-go/plugin/pkg/client/auth/azure/azure.go:300:25:
-# cannot call non-function spt.Token (type adal.Token)
-[[override]]
-  name = "github.com/Azure/go-autorest"
-  revision = "1ff28809256a84bb6966640ff3d0371af82ccba4"
-
-[[override]]
-  name = "github.com/hashicorp/go-hclog"
-  revision = "69ff559dc25f3b435631604f573a5fa1efdb6433"
-
-[[override]]
-  name = "github.com/hashicorp/go-plugin"
-  revision = "e2fbc6864d18d3c37b6cde4297ec9fca266d28f1"
-
-[[override]]
-  name = "golang.org/x/oauth2"
-  revision = "master"
-

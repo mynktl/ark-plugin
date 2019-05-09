@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -28,15 +27,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/heptio/ark/pkg/cloudprovider"
-	"github.com/heptio/ark/pkg/util/collections"
+	"github.com/heptio/velero/pkg/plugin/velero"
 	/* Due to dependency conflict, please ensure openebs
 	 * dependency manually instead of using dep
 	 */
-	v1alpha1 "github.com/openebs/maya/pkg/apis/openebs.io/v1alpha1"
+	"github.com/openebs/maya/pkg/apis/openebs.io/v1alpha1"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -55,7 +55,7 @@ const (
 )
 
 type cstorSnapPlugin struct {
-	Plugin          cloudprovider.BlockStore
+	Plugin          velero.VolumeSnapshotter
 	Log             logrus.FieldLogger
 	K8sClient       corev1.CoreV1Interface
 	config          map[string]string
@@ -169,24 +169,31 @@ func (p *cstorSnapPlugin) Init(config map[string]string) error {
 	return p.cl.InitCloudConn(config)
 }
 
-func (p *cstorSnapPlugin) GetVolumeID(pv runtime.Unstructured) (string, error) {
-	if !collections.Exists(pv.UnstructuredContent(), "metadata") {
-		return "", nil
+func (p *cstorSnapPlugin) GetVolumeID(unstructuredPV runtime.Unstructured) (string, error) {
+	p.Log.Infof("GetVolumeID called", unstructuredPV)
+
+	pv := new(v1.PersistentVolume)
+
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPV.UnstructuredContent(), pv); err != nil {
+		return "", errors.WithStack(err)
 	}
 
+	if pv.Name == "" || pv.Spec.StorageClassName == "" || (pv.Spec.ClaimRef != nil && pv.Spec.ClaimRef.Namespace == "") {
+		p.Log.Errorf("Insufficient info for PV : %v", pv)
+		return "", errors.New("Insufficient info for PV")
+	}
+
+	//TODO check if needed since init is called each time
 	// Seed the volume info so that GetVolumeInfo doesn't fail later.
-	volumeID, _ := collections.GetString(pv.UnstructuredContent(), "metadata.name")
-	if _, exists := p.volumes[volumeID]; !exists {
-		sc, _ := collections.GetString(pv.UnstructuredContent(), "spec.storageClassName")
-		ns, _ := collections.GetString(pv.UnstructuredContent(), "spec.claimRef.namespace")
-		p.volumes[volumeID] = &Volume{
-			volname:   volumeID,
-			casType:   sc,
-			namespace: ns,
+	if _, exists := p.volumes[pv.Name]; !exists {
+		p.volumes[pv.Name] = &Volume{
+			volname:   pv.Name,
+			casType:   pv.Spec.StorageClassName,
+			namespace: pv.Spec.ClaimRef.Namespace,
 		}
 	}
 
-	return collections.GetString(pv.UnstructuredContent(), "metadata.name")
+	return pv.Name, nil
 }
 
 func (p *cstorSnapPlugin) DeleteSnapshot(snapshotID string) error {
@@ -258,7 +265,7 @@ func (p *cstorSnapPlugin) CreateSnapshot(volumeID, volumeAZ string, tags map[str
 	var vol *Volume
 
 	p.cl.exitServer = false
-	bkpname, terr := tags["ark.heptio.com/backup"]
+	bkpname, terr := tags["velero.io/backup"]
 	if terr != true {
 		return "", errors.New("Failed to get backup name")
 	}
@@ -275,8 +282,8 @@ func (p *cstorSnapPlugin) CreateSnapshot(volumeID, volumeAZ string, tags map[str
 	}
 
 	p.Log.Infof("creating snapshot %v", bkpname)
-
 	splitName := strings.Split(bkpname, "-")
+
 	bname := ""
 	if len(splitName) >= 2 {
 		bname = strings.Join(splitName[0:len(splitName)-1], "-")
@@ -287,14 +294,12 @@ func (p *cstorSnapPlugin) CreateSnapshot(volumeID, volumeAZ string, tags map[str
 	if len(strings.TrimSpace(bkpname)) == 0 {
 		return "", errors.New("no bkpname")
 	}
-
 	bkpSpec := &v1alpha1.BackupCStorSpec{
 		BackupName: bname,
 		VolumeName: volumeID,
 		SnapName:   bkpname,
 		BackupDest: p.cstorServerAddr,
 	}
-
 	bkp := &v1alpha1.BackupCStor{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: vol.namespace,
@@ -522,14 +527,16 @@ func (p *cstorSnapPlugin) generateRemoteFilename(filename, bkpname string) strin
 	return backupDir + "/" + bkpname + "/" + p.cl.prefix + "-" + filename + "-" + bkpname
 }
 
-func (p *cstorSnapPlugin) SetVolumeID(pv runtime.Unstructured, volumeID string) (runtime.Unstructured, error) {
-	metadataMap, err := collections.GetMap(pv.UnstructuredContent(), "spec.hostPath.path")
-	if err != nil {
-		return nil, err
+func (p *cstorSnapPlugin) SetVolumeID(unstructuredPV runtime.Unstructured, volumeID string) (runtime.Unstructured, error) {
+	var err error
+	pv := new(v1.PersistentVolume)
+	if err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPV.UnstructuredContent(), pv); err != nil {
+		return nil, errors.WithStack(err)
 	}
 
-	metadataMap["volumeID"] = volumeID
-	return pv, nil
+	// We will not update HostPath since CStor volume doesn't have one
+	res, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pv)
+	return &unstructured.Unstructured{Object: res}, nil
 }
 
 func (p *cstorSnapPlugin) httpRestCall(url, reqtype string, data []byte) ([]byte, error) {

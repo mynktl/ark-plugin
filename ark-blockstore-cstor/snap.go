@@ -17,18 +17,18 @@ limitations under the License.
 package main
 
 import (
-	"github.com/heptio/ark/pkg/cloudprovider"
+	"github.com/heptio/velero/pkg/plugin/velero"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // BlockStore : Plugin for containing state for the blockstore plugin
 type BlockStore struct {
+	plugin velero.VolumeSnapshotter
 	Log    logrus.FieldLogger
-	plugin cloudprovider.BlockStore
 }
 
-var _ cloudprovider.BlockStore = (*BlockStore)(nil)
+var _ velero.VolumeSnapshotter = (*BlockStore)(nil)
 
 // Init the plugin
 func (p *BlockStore) Init(config map[string]string) error {
