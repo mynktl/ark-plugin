@@ -57,6 +57,9 @@ const (
 const (
 	// NAMESPACE config key for OpenEBS namespace
 	NAMESPACE = "namespace"
+
+	// LOCAL_SNAPSHOT config key for local snapshot
+	LOCAL_SNAPSHOT = "local"
 )
 
 // Plugin defines snapshot plugin for CStor volume
@@ -75,6 +78,9 @@ type Plugin struct {
 
 	// namespace in which openebs is installed, default is openebs
 	namespace string
+
+	// if only local snapshot enabled
+	local bool
 
 	// cl stores cloud connection information
 	cl *cloud.Conn
@@ -189,6 +195,14 @@ func (p *Plugin) Init(config map[string]string) error {
 		p.snapshots = make(map[string]*Snapshot)
 	}
 
+	if local, ok := config[LOCAL_SNAPSHOT]; ok && local == "true" {
+		p.local = true
+	}
+
+	if p.local {
+		return nil
+	}
+
 	p.cl = &cloud.Conn{Log: p.Log}
 	return p.cl.Init(config)
 }
@@ -297,6 +311,11 @@ func (p *Plugin) DeleteSnapshot(snapshotID string) error {
 		return errors.Errorf("HTTP Status error{%v} from maya-apiserver", code)
 	}
 
+	if p.local {
+		// volumesnapshotlocation is configured for local snapshot
+		return nil
+	}
+
 	filename := p.cl.GenerateRemoteFilename(snapInfo.volID, snapInfo.backupName)
 	if filename == "" {
 		return errors.Errorf("Error creating remote file name for backup")
@@ -314,7 +333,10 @@ func (p *Plugin) DeleteSnapshot(snapshotID string) error {
 func (p *Plugin) CreateSnapshot(volumeID, volumeAZ string, tags map[string]string) (string, error) {
 	var vol *Volume
 
-	p.cl.ExitServer = false
+	if !p.local {
+		p.cl.ExitServer = false
+	}
+
 	bkpname, ret := tags["velero.io/backup"]
 	if !ret {
 		return "", errors.New("Failed to get backup name")
@@ -326,9 +348,12 @@ func (p *Plugin) CreateSnapshot(volumeID, volumeAZ string, tags map[string]strin
 
 	vol = p.volumes[volumeID]
 	vol.backupName = bkpname
-	err := p.backupPVC(volumeID)
-	if err != nil {
-		return "", errors.Errorf("failed to create backup for PVC.. %s", err)
+	if !p.local {
+		// If cloud snapshot is configured then we need to backup PVC also
+		err := p.backupPVC(volumeID)
+		if err != nil {
+			return "", errors.Errorf("failed to create backup for PVC.. %s", err)
+		}
 	}
 
 	p.Log.Infof("creating snapshot{%s}", bkpname)
@@ -350,6 +375,7 @@ func (p *Plugin) CreateSnapshot(volumeID, volumeAZ string, tags map[string]strin
 		VolumeName: volumeID,
 		SnapName:   bkpname,
 		BackupDest: p.cstorServerAddr,
+		LocalSnap:  p.local,
 	}
 
 	bkp := &v1alpha1.CStorBackup{
@@ -373,6 +399,12 @@ func (p *Plugin) CreateSnapshot(volumeID, volumeAZ string, tags map[string]strin
 	}
 
 	p.Log.Infof("Snapshot Successfully Created")
+
+	if p.local {
+		// local snapshot
+		return volumeID + "-velero-bkp-" + bkpname, nil
+	}
+
 	filename := p.cl.GenerateRemoteFilename(volumeID, vol.backupName)
 	if filename == "" {
 		return "", errors.Errorf("Error creating remote file name for backup")
@@ -421,6 +453,10 @@ func (p *Plugin) CreateVolumeFromSnapshot(snapshotID, volumeType, volumeAZ strin
 	p.cl.ExitServer = false
 	if volumeType != "cstor-snapshot" {
 		return "", errors.Errorf("Invalid volume type{%s}", volumeType)
+	}
+
+	if p.local {
+		return "", errors.Errorf("Restoring local %s is not supported by plugin", volumeType)
 	}
 
 	s := strings.Split(snapshotID, "-velero-bkp-")
